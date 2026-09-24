@@ -11,38 +11,63 @@ import {
   Grid,
   ToggleButton,
   ToggleButtonGroup,
+  Alert,
 } from "@mui/material";
 
 function App() {
   const [sfData, setSfData] = useState(null);
+  const [cashEntryName, setCashEntryName] = useState(null);
   
   // State initialized to null so there is no default selection
   const [selectedOption, setSelectedOption] = useState(null);
 
   useEffect(() => {
-    const handleMessage = (event) => {
-      if (!event.origin.includes("sandbox.vf.force.com")) return;
+    setCashEntryName(null);
+  }, [sfData?.gwPayload?.partyId]);
 
-      console.log("Raw data received:", event.data);
+  useEffect(() => {
+      const handleMessage = (event) => {
+        if (!event.origin.includes("sandbox.vf.force.com")) return;
+  
+        console.log("Data received:", event.data);
+  
+        const data = event.data;
 
-      let parsedData;
+        if (data === null) {
+          setSfData(null);
+          setCashEntryName(null);
+          return;
+        }
+  
+        if (
+          typeof data !== "object" ||
+          data === null ||
+          typeof data.gwMessageType === "undefined"
+        ) {
+          console.warn("Invalid message received:", data);
+          return;
+        }
+  
+        console.log("Message Type:", data.gwMessageType);
+        console.log("Message ID:", data.gwMessageId);
+        console.log("Payload:", data.gwPayload);
 
-      try {
-        parsedData =
-          typeof event.data === "string"
-            ? JSON.parse(event.data)
-            : event.data;
+        const entryName = data.gwPayload?.cashEntryName;
 
-        console.log("Parsed data:", parsedData);
-        setSfData(parsedData);
-      } catch (error) {
-        console.error("Error parsing message data:", error);
-      }
-    };
+        if (entryName) {
+          setCashEntryName(entryName);
+          return;
+        }
 
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, []);
+        setSfData(data);
+      };
+  
+      window.addEventListener("message", handleMessage);
+  
+      return () => {
+        window.removeEventListener("message", handleMessage);
+      };
+    }, []);
 
   // Handler for the horizontal options
   const handleOptionChange = (event, newOption) => {
@@ -103,27 +128,42 @@ function App() {
               </Box>
             </Grid>
 
-            {/* Bottom Section: Payment Iframe (Only shows if sfData and Id are present) */}
-            {sfData && sfData.Id && (
+            {sfData && (
               <Grid item xs={12}>
-                 <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" color="textSecondary" sx={{ mb: 1 }}>
                   Payment Setup for {sfData.Name}
                 </Typography>
-                <Box
-                  sx={{
-                    border: "2px solid #2e7d32",
-                    borderRadius: 2,
-                    overflow: "hidden",
-                  }}
-                >
-                  <iframe
-                    src={`https://racv--iagiqa--c.sandbox.vf.force.com/apex/ExternalCustomerPaymentVF?id=${sfData.Id}`}
-                    width="100%"
-                    height="550px"
-                    style={{ border: "none" }}
-                    title="Payment Iframe"
-                  />
-                </Box>
+                {sfData.gwPayload?.partyId == null ? (
+                  <Alert severity="error">
+                    Unable to load payment setup: Guidewire Id is missing for this customer.
+                  </Alert>
+                ) : (
+                  <Box
+                    sx={{
+                      border: "2px solid #2e7d32",
+                      borderRadius: 2,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <iframe
+                      src={`https://racv--iagiqa--c.sandbox.vf.force.com/apex/ExternalCustomerPaymentVF?id=${sfData.gwPayload.partyId}`}
+                      width="100%"
+                      height="550px"
+                      style={{ border: "none" }}
+                      title="Payment Iframe"
+                    />
+                  </Box>
+                )}
+
+                {cashEntryName && (
+                  <Card elevation={3} sx={{ borderRadius: 3, mt: 2 }}>
+                    <CardContent>
+                      <Typography>
+                        Cash entry created: <strong>{cashEntryName}</strong>
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                )}
               </Grid>
             )}
           </Grid>
