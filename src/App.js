@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   AppBar,
   Toolbar,
@@ -9,20 +9,35 @@ import {
   CardContent,
   Paper,
   Grid,
-  ToggleButton,
-  ToggleButtonGroup,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
 } from "@mui/material";
 
 function App() {
   const [sfData, setSfData] = useState(null);
   const [cashEntryName, setCashEntryName] = useState(null);
-  
-  // State initialized to null so there is no default selection
-  const [selectedOption, setSelectedOption] = useState(null);
+  const [paymentIframeLoaded, setPaymentIframeLoaded] = useState(false);
+  const [paymentDismissed, setPaymentDismissed] = useState(false);
+  const [showLeavePaymentDialog, setShowLeavePaymentDialog] = useState(false);
+
+  const paymentIframeContainerRef = useRef(null);
+  const paymentIframeRef = useRef(null);
+
+  const isPaymentActive =
+    Boolean(sfData?.gwPayload?.partyId) &&
+    paymentIframeLoaded &&
+    !paymentDismissed;
 
   useEffect(() => {
     setCashEntryName(null);
+    setPaymentIframeLoaded(false);
+    setPaymentDismissed(false);
+    setShowLeavePaymentDialog(false);
   }, [sfData?.gwPayload?.partyId]);
 
   useEffect(() => {
@@ -69,11 +84,50 @@ function App() {
       };
     }, []);
 
-  // Handler for the horizontal options
-  const handleOptionChange = (event, newOption) => {
-    if (newOption !== null) {
-      setSelectedOption(newOption);
+  useEffect(() => {
+    if (!isPaymentActive) {
+      return undefined;
     }
+
+    const handleOutsideClick = (event) => {
+      if (showLeavePaymentDialog) {
+        return;
+      }
+
+      if (
+        paymentIframeContainerRef.current &&
+        !paymentIframeContainerRef.current.contains(event.target)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        setShowLeavePaymentDialog(true);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick, true);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick, true);
+    };
+  }, [isPaymentActive, showLeavePaymentDialog]);
+
+  const focusPaymentIframe = () => {
+    paymentIframeRef.current?.focus();
+    try {
+      paymentIframeRef.current?.contentWindow?.focus();
+    } catch (error) {
+      console.warn("Unable to focus payment iframe:", error);
+    }
+  };
+
+  const handleConfirmLeavePayment = () => {
+    setShowLeavePaymentDialog(false);
+    setPaymentDismissed(true);
+  };
+
+  const handleCancelLeavePayment = () => {
+    setShowLeavePaymentDialog(false);
+    focusPaymentIframe();
   };
 
   return (
@@ -137,8 +191,9 @@ function App() {
                   <Alert severity="error">
                     Unable to load payment setup: Guidewire Id is missing for this customer.
                   </Alert>
-                ) : (
+                ) : !paymentDismissed ? (
                   <Box
+                    ref={paymentIframeContainerRef}
                     sx={{
                       border: "2px solid #2e7d32",
                       borderRadius: 2,
@@ -146,13 +201,20 @@ function App() {
                     }}
                   >
                     <iframe
+                      ref={paymentIframeRef}
                       src={`https://racv--iagiqa--c.sandbox.vf.force.com/apex/ExternalCustomerPaymentVF?id=${sfData.gwPayload.partyId}`}
                       width="100%"
                       height="550px"
                       style={{ border: "none" }}
                       title="Payment Iframe"
+                      tabIndex={0}
+                      onLoad={() => setPaymentIframeLoaded(true)}
                     />
                   </Box>
+                ) : (
+                  <Alert severity="warning">
+                    Payment was closed. Search again or select another customer to restart payment.
+                  </Alert>
                 )}
 
                 {cashEntryName && (
@@ -197,6 +259,32 @@ function App() {
         </Card>
 
       </Container>
+
+      <Dialog
+        open={showLeavePaymentDialog}
+        onClose={handleCancelLeavePayment}
+        aria-labelledby="leave-payment-dialog-title"
+      >
+        <DialogTitle id="leave-payment-dialog-title">
+          Payment In Progress
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Do not allow other operations while a payment is in progress.
+          </DialogContentText>
+          <DialogContentText sx={{ mt: 2 }}>
+            Are you sure you want to do something else?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelLeavePayment} color="primary" variant="contained">
+            No
+          </Button>
+          <Button onClick={handleConfirmLeavePayment} color="warning" variant="outlined">
+            Yes
+          </Button>
+        </DialogActions>
+      </Dialog>
       
     </Box>
   );
